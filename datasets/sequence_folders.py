@@ -22,7 +22,7 @@ class SequenceFolder(data.Dataset):
     """
 
     def __init__(self, root, seed=None, train=True, sequence_length=3, transform=None, target_transform=None):
-        np.random.seed(seed)
+        np.random.seed(seed) # seed 用于 shuffle sequence_set
         random.seed(seed)
         self.root = Path(root)
         scene_list_path = self.root/'train.txt' if train else self.root/'val.txt'
@@ -31,6 +31,18 @@ class SequenceFolder(data.Dataset):
         self.crawl_folders(sequence_length)
 
     def crawl_folders(self, sequence_length):
+        '''将所有 scene (存在一个 folder 中) 中的图片组成 sequence 的集合.
+        sequence_length 指定了每个 sequence 的长度, 默认为 3. 每张图片和前后各 semi_length 张图片组成一个 sequencdde.
+
+        一个 sample 如下:
+        {'intrinsics': array([[241.67447,   0.     , 204.16801],
+                              [  0.     , 246.28487,  59.00083],
+                              [  0.     ,   0.     ,   1.     ]], dtype=float32),
+         'tgt': Path('formatted_data/2011_09_26_drive_0087_sync_03/0000000006.jpg'),
+         'ref_imgs': [Path('formatted_data/2011_09_26_drive_0087_sync_03/0000000003.jpg'),
+                      Path('formatted_data/2011_09_26_drive_0087_sync_03/0000000009.jpg')]}
+
+           '''
         sequence_set = []
         demi_length = (sequence_length-1)//2
         shifts = list(range(-demi_length, demi_length + 1))

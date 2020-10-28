@@ -85,7 +85,7 @@ def main():
     args.save_path = 'checkpoints'/save_path
     print('=> will save everything to {}'.format(args.save_path))
     args.save_path.makedirs_p()
-    torch.manual_seed(args.seed)
+    torch.manual_seed(args.seed)  # TODO seed 的作用
     if args.evaluate:
         args.epochs = 0
 
@@ -93,6 +93,7 @@ def main():
     # Data loading code
     normalize = custom_transforms.Normalize(mean=[0.5, 0.5, 0.5],
                                             std=[0.5, 0.5, 0.5])
+    # 对样本中每一张图片的 transform
     train_transform = custom_transforms.Compose([
         custom_transforms.RandomHorizontalFlip(),
         custom_transforms.RandomScaleCrop(),
@@ -103,6 +104,7 @@ def main():
     valid_transform = custom_transforms.Compose([custom_transforms.ArrayToTensor(), normalize])
 
     print("=> fetching scenes in '{}'".format(args.data))
+    # sequence_length = 3, 对应论文中一组 source image + target images 的数量
     train_set = SequenceFolder(
         args.data,
         transform=train_transform,
@@ -128,6 +130,7 @@ def main():
         )
     print('{} samples found in {} train scenes'.format(len(train_set), len(train_set.scenes)))
     print('{} samples found in {} valid scenes'.format(len(val_set), len(val_set.scenes)))
+    # batch_size = 4 的作用有两个 1) 提高网络稳定性, 一次训练多张图片, 比一次一张得到的网络更稳定; 2) 加快速度
     train_loader = torch.utils.data.DataLoader(
         train_set, batch_size=args.batch_size, shuffle=True,
         num_workers=args.workers, pin_memory=True)
@@ -242,6 +245,8 @@ def main():
 
 
 def train(args, train_loader, disp_net, pose_exp_net, optimizer, epoch_size, logger, tb_writer):
+    '''jointly training a single-view depth CNN and a camera pose estimation CNN'''
+
     global n_iter, device
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -256,6 +261,7 @@ def train(args, train_loader, disp_net, pose_exp_net, optimizer, epoch_size, log
     logger.train_bar.update(0)
 
     for i, (tgt_img, ref_imgs, intrinsics, intrinsics_inv) in enumerate(train_loader):
+        # 同一个 sequence (tgt_img, ref_imgs) 的内参相同
         log_losses = i > 0 and n_iter % args.print_freq == 0
         log_output = args.training_output_freq > 0 and n_iter % args.training_output_freq == 0
 
@@ -264,12 +270,16 @@ def train(args, train_loader, disp_net, pose_exp_net, optimizer, epoch_size, log
         tgt_img = tgt_img.to(device)
         ref_imgs = [img.to(device) for img in ref_imgs]
         intrinsics = intrinsics.to(device)
+        # intrinsics.size = torch.Size([4, 3, 3])     batch_size=4 对应四组 sequence, 不同 sequence 相机内参可能也不同
+        # tgt_img.size = torch.Size([4, 3, 128, 416])
+        # ref_imgs.len = 2
 
         # compute output
         disparities = disp_net(tgt_img)
-        depth = [1/disp for disp in disparities]
+        depth = [1/disp for disp in disparities]   # 视差与深度成反比. 试试把手指放在双眼中间正前方, 闭上一只眼, 然后慢慢将手指拉近
         explainability_mask, pose = pose_exp_net(tgt_img, ref_imgs)
 
+        # depth 和 pose 在两个网络里训练, 但 loss 是放在一起算的
         loss_1, warped, diff = photometric_reconstruction_loss(tgt_img, ref_imgs, intrinsics,
                                                                depth, explainability_mask, pose,
                                                                args.rotation_mode, args.padding_mode)

@@ -39,6 +39,7 @@ class ArrayToTensor(object):
             # put it from HWC to CHW format
             im = np.transpose(im, (2, 0, 1))
             # handle numpy array
+            # 将 RGB 值除以 255
             tensors.append(torch.from_numpy(im).float()/255)
         return tensors, intrinsics
 
@@ -52,6 +53,7 @@ class RandomHorizontalFlip(object):
             output_intrinsics = np.copy(intrinsics)
             output_images = [np.copy(np.fliplr(im)) for im in images]
             w = output_images[0].shape[1]
+            # 图片水平翻转后 cx' = w - cx
             output_intrinsics[0,2] = w - output_intrinsics[0,2]
         else:
             output_images = images

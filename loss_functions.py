@@ -8,17 +8,57 @@ from inverse_warp import inverse_warp
 def photometric_reconstruction_loss(tgt_img, ref_imgs, intrinsics,
                                     depth, explainability_mask, pose,
                                     rotation_mode='euler', padding_mode='zeros'):
+    '''
+    tgt_img.size = torch.Size([4, 3, 128, 416])
+    ref_imgs.len 2
+    intrinsics.size = torch.Size([4, 3, 3])
+    depth.len = 4
+    explainability_mask.len = 4
+    pose.size = torch.Size([4, 2, 6])       # 从 target 到两个 ref_imgs(sources) 的 6DoF 位姿变换
+    '''
+
     def one_scale(depth, explainability_mask):
         assert(explainability_mask is None or depth.size()[2:] == explainability_mask.size()[2:])
         assert(pose.size(1) == len(ref_imgs))
+
+        ##### 将 depth 图和原始图 scale 到同样大小的尺寸, 注意相机内参也需要随之 scale
 
         reconstruction_loss = 0
         b, _, h, w = depth.size()
         downscale = tgt_img.size(2)/h
 
-        tgt_img_scaled = F.interpolate(tgt_img, (h, w), mode='area')
+        tgt_img_scaled = F.interpolate(tgt_img, (h, w), mode='area') # TODO mode='area'
         ref_imgs_scaled = [F.interpolate(ref_img, (h, w), mode='area') for ref_img in ref_imgs]
-        intrinsics_scaled = torch.cat((intrinsics[:, 0:2]/downscale, intrinsics[:, 2:]), dim=1)
+        intrinsics_scaled = torch.cat((intrinsics[:, 0:2]/downscale, intrinsics[:, 2:]), dim=1)  # TODO intrinsics 为什么要这么排列
+        '''
+        (Pdb) intrinsics
+        tensor([[[261.5696,   0.0000, 217.9755],
+                 [  0.0000, 272.7059,  62.3303],
+                 [  0.0000,   0.0000,   1.0000]],
+
+                ...
+
+                [[270.3754,   0.0000, 211.4148],
+                 [  0.0000, 265.8237,  55.6816],
+                 [  0.0000,   0.0000,   1.0000]]], device='cuda:0')
+
+        (Pdb) intrinsics[:, 2:]
+        tensor([[[0., 0., 1.]],
+
+                ...
+
+                [[0., 0., 1.]]], device='cuda:0')
+
+        (Pdb) intrinsics[:, 0:2]
+        tensor([[[261.5696,   0.0000, 217.9755],
+                 [  0.0000, 272.7059,  62.3303]],
+
+                ...
+
+                [[270.3754,   0.0000, 211.4148],
+                 [  0.0000, 265.8237,  55.6816]]], device='cuda:0')
+
+        '''
 
         warped_imgs = []
         diff_maps = []
@@ -35,8 +75,10 @@ def photometric_reconstruction_loss(tgt_img, ref_imgs, intrinsics,
                 diff = diff * explainability_mask[:,i:i+1].expand_as(diff)
 
             reconstruction_loss += diff.abs().mean()
+            # TODO 这里 assert 是为了检查什么
             assert((reconstruction_loss == reconstruction_loss).item() == 1)
 
+            # TODO 一个 batch 里 4 张图片，这里为什么只取第一张
             warped_imgs.append(ref_img_warped[0])
             diff_maps.append(diff[0])
 
@@ -58,16 +100,25 @@ def photometric_reconstruction_loss(tgt_img, ref_imgs, intrinsics,
 
 
 def explainability_loss(mask):
+    '''
+    Args:
+        mask: batch_size 个 Tensor, 每个 Tensor 包含
+    '''
     if type(mask) not in [tuple, list]:
         mask = [mask]
     loss = 0
     for mask_scaled in mask:
         ones_var = torch.ones_like(mask_scaled)
+        # TODO binary_cross_entropy
         loss += nn.functional.binary_cross_entropy(mask_scaled, ones_var)
     return loss
 
 
 def smooth_loss(pred_map):
+    '''
+    Args:
+        pred_map: 4 个不同 scales 的深度图，对应 Fig4
+    '''
     def gradient(pred):
         D_dy = pred[:, :, 1:] - pred[:, :, :-1]
         D_dx = pred[:, :, :, 1:] - pred[:, :, :, :-1]

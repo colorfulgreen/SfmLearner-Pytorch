@@ -8,3 +8,5 @@ blessings
 progressbar2
 tqdm
 path
+pebble
+scikit-image

@@ -6,8 +6,10 @@ from torch.nn.init import xavier_uniform_, zeros_
 
 def downsample_conv(in_planes, out_planes, kernel_size=3):
     return nn.Sequential(
+        # downsample
         nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=2, padding=(kernel_size-1)//2),
         nn.ReLU(inplace=True),
+        # conv
         nn.Conv2d(out_planes, out_planes, kernel_size=kernel_size, padding=(kernel_size-1)//2),
         nn.ReLU(inplace=True)
     )
@@ -40,6 +42,7 @@ def crop_like(input, ref):
 
 
 class DispNetS(nn.Module):
+    '''Based on an encoder-decoder design with skip connections and multi-scale side predictions'''
 
     def __init__(self, alpha=10, beta=0.01):
         super(DispNetS, self).__init__()
@@ -47,10 +50,13 @@ class DispNetS(nn.Module):
         self.alpha = alpha
         self.beta = beta
 
-        conv_planes = [32, 64, 128, 256, 512, 512, 512]
-        self.conv1 = downsample_conv(3,              conv_planes[0], kernel_size=7)
+        '''深度估计任务是从二维图像到二维图像的预测，因此整个过程是一个自编码过程，包含编码和解码，通俗点讲就是上采样和下采样.
+        下采样利用了卷积和池化, 上采样利用了逆卷积(deconvolution)和upsample'''
+
+        conv_planes = [32, 64, 128, 256, 512, 512, 512]   # n_channels
+        self.conv1 = downsample_conv(3,              conv_planes[0], kernel_size=7) # 这里每一个 conv 对应 Fig.4 上同尺寸两层组成的 block
         self.conv2 = downsample_conv(conv_planes[0], conv_planes[1], kernel_size=5)
-        self.conv3 = downsample_conv(conv_planes[1], conv_planes[2])
+        self.conv3 = downsample_conv(conv_planes[1], conv_planes[2]) # kernel_size=3 for all other layers
         self.conv4 = downsample_conv(conv_planes[2], conv_planes[3])
         self.conv5 = downsample_conv(conv_planes[3], conv_planes[4])
         self.conv6 = downsample_conv(conv_planes[4], conv_planes[5])
@@ -65,6 +71,7 @@ class DispNetS(nn.Module):
         self.upconv2 = upconv(upconv_planes[4], upconv_planes[5])
         self.upconv1 = upconv(upconv_planes[5], upconv_planes[6])
 
+        # 这几个卷积处理的是与 残差连接 拼接后的图，n_planes 翻倍了, 再给降回去
         self.iconv7 = conv(upconv_planes[0] + conv_planes[5], upconv_planes[0])
         self.iconv6 = conv(upconv_planes[1] + conv_planes[4], upconv_planes[1])
         self.iconv5 = conv(upconv_planes[2] + conv_planes[3], upconv_planes[2])
@@ -73,6 +80,7 @@ class DispNetS(nn.Module):
         self.iconv2 = conv(1 + upconv_planes[5] + conv_planes[0], upconv_planes[5])
         self.iconv1 = conv(1 + upconv_planes[6], upconv_planes[6])
 
+        # to constrain the predicted depth to be always positive within a reasonable range
         self.predict_disp4 = predict_disp(upconv_planes[3])
         self.predict_disp3 = predict_disp(upconv_planes[4])
         self.predict_disp2 = predict_disp(upconv_planes[5])
@@ -81,7 +89,7 @@ class DispNetS(nn.Module):
     def init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
-                xavier_uniform_(m.weight)
+                xavier_uniform_(m.weight) # TODO sampled from a uniform distribution
                 if m.bias is not None:
                     zeros_(m.bias)
 
@@ -94,9 +102,9 @@ class DispNetS(nn.Module):
         out_conv6 = self.conv6(out_conv5)
         out_conv7 = self.conv7(out_conv6)
 
-        out_upconv7 = crop_like(self.upconv7(out_conv7), out_conv6)
-        concat7 = torch.cat((out_upconv7, out_conv6), 1)
-        out_iconv7 = self.iconv7(concat7)
+        out_upconv7 = crop_like(self.upconv7(out_conv7), out_conv6) # 上采样
+        concat7 = torch.cat((out_upconv7, out_conv6), 1)            # 添加残差, W 和 H 不变，只有 n_planes 翻倍 ?
+        out_iconv7 = self.iconv7(concat7)                           # 卷积
 
         out_upconv6 = crop_like(self.upconv6(out_iconv7), out_conv5)
         concat6 = torch.cat((out_upconv6, out_conv5), 1)
@@ -109,6 +117,8 @@ class DispNetS(nn.Module):
         out_upconv4 = crop_like(self.upconv4(out_iconv5), out_conv3)
         concat4 = torch.cat((out_upconv4, out_conv3), 1)
         out_iconv4 = self.iconv4(concat4)
+        # to constrain the predicted depth to be always positive within a reasonable range
+        # TODO prediction layer 除了限制 depth 取值范围, 还有其它作用吗
         disp4 = self.alpha * self.predict_disp4(out_iconv4) + self.beta
 
         out_upconv3 = crop_like(self.upconv3(out_iconv4), out_conv2)
@@ -128,6 +138,8 @@ class DispNetS(nn.Module):
         concat1 = torch.cat((out_upconv1, disp2_up), 1)
         out_iconv1 = self.iconv1(concat1)
         disp1 = self.alpha * self.predict_disp1(out_iconv1) + self.beta
+        # disp1.size = torch.Size([4, 1, 128, 416])
+
 
         if self.training:
             return disp1, disp2, disp3, disp4

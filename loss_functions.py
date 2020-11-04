@@ -115,7 +115,12 @@ def explainability_loss(mask):
 
 
 def smooth_loss(pred_map):
-    '''
+    '''overcoming the gradient locality
+
+    问题的具体描述：photometric reconstruction loss 仅依赖局部的双线性插值，当坐标位于 low-texture 区域时，即便预测错误，该部分 loss 仍为 0.
+    为了在损失函数中体现这部分的错误，作者引入一个 smoothness loss 项，约束相邻位置的深度差.
+    另一种解释是，引入 smoothness loss 可以借助高纹理区域的正确结果，帮助矫正低纹理区域.
+
     Args:
         pred_map: 4 个不同 scales 的深度图，对应 Fig4
     '''

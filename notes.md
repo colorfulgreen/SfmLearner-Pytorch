@@ -4,6 +4,10 @@ python3 data/prepare_train_data.py /data/KITTI-raw-data/raw_data_KITTI/ --datase
 
 python3 train.py formatted_data/ -b4 -m0.2 -s0.1 --epoch-size 3000 --sequence-length 3 --log-output
 
+python3 run_inference.py --output-disp --pretrained checkpoints/formatted_data,epoch_size3000,m0.2/10-27-13:53/dispnet_model_best.pth.tar --dataset-dir formatted_data/2011_09_26_drive_0001_sync_02 --output-dir disparity_map 
+
+python3 test_disp.py --pretrained-dispnet checkpoints/formatted_data,epoch_size3000,m0.2/10-27-13:53/dispnet_model_best.pth.tar --pretrained-posenet  /home/colorfulgreen/src/SfmLearner-Pytorch/checkpoints/formatted_data,epoch_size3000,m0.2/10-27-13:53/exp_pose_model_best.pth.tar --dataset-dir /data/KITTI-raw-data/raw_data_KITTI/ --dataset-list kitti_eval/test_files_eigen.txt
+
 
 # train.py
 

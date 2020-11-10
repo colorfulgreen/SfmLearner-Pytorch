@@ -1,6 +1,6 @@
 import torch
 
-from scipy.misc import imresize
+from skimage.transform import resize as imresize
 from scipy.ndimage.interpolation import zoom
 import numpy as np
 from path import Path
@@ -43,7 +43,7 @@ def main():
     disp_net = DispNetS().to(device)
     weights = torch.load(args.pretrained_dispnet)
     disp_net.load_state_dict(weights['state_dict'])
-    disp_net.eval()
+    disp_net.eval() # set dropout and batch normalization layers to evaluation mode before running inference
 
     if args.pretrained_posenet is None:
         print('no PoseNet specified, scale_factor will be determined by median ratio, which is kiiinda cheating\

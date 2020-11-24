@@ -21,7 +21,11 @@ def photometric_reconstruction_loss(tgt_img, ref_imgs, intrinsics,
         assert(explainability_mask is None or depth.size()[2:] == explainability_mask.size()[2:])
         assert(pose.size(1) == len(ref_imgs))
 
-        ##### 将 depth 图和原始图 scale 到同样大小的尺寸, 注意相机内参也需要随之 scale
+        ##### 将原始图 scale 到和深度图同样的尺寸, 注意相机内参也需要随之 scale
+
+        # 之后 2019 ICCV <Digging Into Self-Supervised Monocular Depth Estimation> 的改进之一,
+        # 是先将深度图上采样到和原始图同样的尺寸, 然后再计算光度测量误差
+        # (论文中称其 decouple the resolution of the disparity images and the color images)
 
         reconstruction_loss = 0
         b, _, h, w = depth.size()
